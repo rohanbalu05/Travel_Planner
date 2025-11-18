@@ -1,39 +1,300 @@
-﻿<!DOCTYPE html>
+﻿<!doctype html>
 <html>
 <head>
-    <meta charset="utf-8">
-    <title>NovaTrip AI Planner</title>
-    <style>
-        body { font-family: Arial, sans-serif; background: #f4f7fb; padding: 30px; }
-        .card { background: #fff; width: 520px; margin: auto; padding: 22px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
-        input, textarea { width: 100%; padding: 10px; margin-top: 8px; border-radius: 6px; border: 1px solid #ddd; }
-        button { padding: 10px 16px; margin-top: 10px; width: 100%; background:#007bff; color:#fff; border:none; border-radius:6px; cursor:pointer; }
-        pre { white-space: pre-wrap; background:#fafafa; padding:10px; border-radius:6px; border:1px solid #eee; }
-    </style>
+  <meta charset="utf-8">
+  <title>NovaTrip AI — Itinerary, Map & Chat</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; background:#f4f7fb; padding:20px; }
+    .card { width:680px; margin:auto; background:white; padding:18px; border-radius:10px; box-shadow:0 6px 18px rgba(0,0,0,0.06); }
+    input, textarea { width:100%; padding:8px; box-sizing:border-box; border-radius:6px; border:1px solid #ddd; }
+    button { padding:8px 12px; border-radius:6px; border:none; cursor:pointer; }
+    .primary { background:#007bff; color:white; }
+    .success { background:#28a745; color:white; }
+    .muted { color:#666; font-size:13px; margin-top:8px; }
+    pre { background:#fafafa; padding:10px; border-radius:6px; border:1px solid #eee; max-height:300px; overflow:auto; white-space:pre-wrap; }
+    .row { display:flex; gap:8px; margin-top:10px; }
+    .col { flex:1; }
+    #map { height:320px; border-radius:8px; margin-top:10px; border:1px solid #e6eef8; }
+    #routeInfo, #chatStatus { margin-top:8px; font-size:14px; color:#333; }
+    .btn-ghost { background:transparent; border:1px solid #ccc; color:#333; }
+  </style>
 </head>
 <body>
-    <div class="card">
-        <h2>NovaTrip AI — Simple Itinerary</h2>
-        <form method="post">
-            <label>Destination</label>
-            <input name="destination" placeholder="e.g., Goa" required>
+  <div class="card">
+    <h2>NovaTrip AI — Itinerary, Map & Chat</h2>
 
-            <label>Budget</label>
-            <input name="budget" placeholder="e.g., 20000 INR">
+    <form method="post" id="itineraryForm">
+      <label>Destination</label>
+      <input name="destination" id="destination" placeholder="e.g., Goa" value="{{ destination|e }}" required>
 
-            <label>Number of Days</label>
-            <input name="days" type="number" min="1" value="3" required>
+      <div class="row">
+        <div class="col">
+          <label>Budget</label>
+          <input name="budget" placeholder="e.g., 20000 INR">
+        </div>
+        <div style="width:120px">
+          <label>Days</label>
+          <input name="days" type="number" min="1" value="3">
+        </div>
+      </div>
 
-            <label>Trip Type</label>
-            <input name="trip_type" placeholder="e.g., adventure, family, solo">
+      <label style="margin-top:8px">Trip Type</label>
+      <input name="trip_type" placeholder="e.g., adventure, family, solo">
 
-            <button type="submit">Generate Itinerary</button>
-        </form>
+      <button class="primary" type="submit" style="margin-top:10px;width:100%;">Generate Itinerary</button>
+    </form>
 
-        {% if result %}
-            <h3>Itinerary</h3>
-            <pre>{{ result }}</pre>
-        {% endif %}
+    {% if result %}
+      <h3 style="margin-top:14px">Itinerary</h3>
+      <pre id="itineraryText">{{ result }}</pre>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button id="pinBtn" class="primary" style="flex:1;background:#6f42c1;">Pin Itinerary Locations</button>
+        <button id="autoPinBtn" class="primary" style="flex:1;background:#17a2b8;">Auto-pin & Center</button>
+      </div>
+
+      <!-- Chat edit UI -->
+      <div style="border-top:1px dashed #eee; margin-top:12px; padding-top:12px;">
+        <strong>Edit itinerary with chatbot</strong>
+        <div style="margin-top:8px;">
+          <input id="chatInput" placeholder="e.g., Add day 3 for island hopping with morning and afternoon timings">
+          <div style="display:flex; gap:8px; margin-top:8px;">
+            <button id="sendChatBtn" class="primary" style="flex:1;background:#17a2b8;">Apply Change</button>
+            <button id="undoBtn" class="btn-ghost">Undo</button>
+          </div>
+          <div id="chatStatus" class="muted"></div>
+        </div>
+      </div>
+    {% else %}
+      <p class="muted" style="margin-top:12px">Generate an itinerary to enable pinning and chat edits.</p>
+    {% endif %}
+
+    <div style="border-top:1px solid #f1f1f1; margin-top:14px; padding-top:12px;">
+      <strong>Route Planner</strong>
+      <div class="muted">Enter origin and destination (address or lat,lng). You can use "My location".</div>
+      <div class="row" style="margin-top:8px;">
+        <input id="originInput" placeholder="Origin (lat,lng) or address" class="col">
+        <button id="useMyLocBtn" class="success" style="width:120px;">My location</button>
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <input id="destInput" placeholder="Destination (lat,lng) or address" class="col" value="{{ destination|e }}">
+        <button id="routeBtn" class="primary" style="width:120px;">Show Route</button>
+      </div>
+
+      <div id="map"></div>
+      <div id="routeInfo"></div>
     </div>
+
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    // Map setup
+    const map = L.map('map').setView([20.5937, 78.9629], 5);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19, attribution:'&copy; OpenStreetMap contributors' }).addTo(map);
+
+    let routeLayer = null;
+    let markerLayer = null;
+    const routeInfo = document.getElementById('routeInfo');
+    const chatStatus = document.getElementById('chatStatus');
+
+    const isLatLng = s => /^\s*-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?\s*$/.test(s);
+
+    // Use browser geolocation
+    document.getElementById('useMyLocBtn').addEventListener('click', (ev) => {
+      ev.preventDefault();
+      if (!navigator.geolocation) return alert('Geolocation not available.');
+      navigator.geolocation.getCurrentPosition((pos) => {
+        const lat = pos.coords.latitude.toFixed(6), lon = pos.coords.longitude.toFixed(6);
+        document.getElementById('originInput').value = `${lat},${lon}`;
+      }, (err) => alert('Location error: ' + err.message), { timeout:8000 });
+    });
+
+    // Route fetch
+    document.getElementById('routeBtn').addEventListener('click', async (ev) => {
+      ev.preventDefault();
+      const originRaw = document.getElementById('originInput').value.trim();
+      const destRaw = document.getElementById('destInput').value.trim();
+      if (!destRaw) return alert('Please enter a destination.');
+      if (!originRaw) {
+        if (confirm('No origin provided. Use browser location?')) { document.getElementById('useMyLocBtn').click(); return; } else return;
+      }
+
+      const params = new URLSearchParams();
+      if (isLatLng(originRaw)) params.set('origin', originRaw); else params.set('origin_address', originRaw);
+      if (isLatLng(destRaw)) params.set('dest', destRaw); else params.set('dest_address', destRaw);
+
+      routeInfo.textContent = 'Loading route...';
+      try {
+        const res = await fetch('/route?' + params.toString());
+        if (!res.ok) { const p = await res.json().catch(()=>({error:res.statusText})); throw new Error(p.error || res.statusText); }
+        const feature = await res.json();
+        if (routeLayer) map.removeLayer(routeLayer);
+        routeLayer = L.geoJSON(feature, { style:{weight:5, opacity:0.85} }).addTo(map);
+        if (markerLayer) { map.removeLayer(markerLayer); markerLayer = null; }
+        map.fitBounds(routeLayer.getBounds(), { padding:[20,20] });
+        const km = (feature.properties.distance/1000).toFixed(2);
+        const mins = Math.round(feature.properties.duration/60);
+        routeInfo.textContent = `Distance: ${km} km — Time: ${mins} min`;
+      } catch (err) {
+        console.error(err);
+        routeInfo.textContent = 'Error: ' + err.message;
+        alert('Route error: ' + err.message);
+      }
+    });
+
+    // Pin itinerary places: uses /pinpoints with "text"
+    async function pinItinerary() {
+      const pre = document.getElementById('itineraryText');
+      if (!pre) return alert('No itinerary to pin.');
+      const text = pre.innerText.trim();
+      if (!text) return alert('Itinerary empty.');
+
+      routeInfo.textContent = 'Finding places...';
+      try {
+        const res = await fetch('/pinpoints', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ text: text, limit: 12 })
+        });
+        if (!res.ok) { const p = await res.json().catch(()=>({error:res.statusText})); throw new Error(p.error || res.statusText); }
+        const fc = await res.json();
+        if (!fc.features || !fc.features.length) { routeInfo.textContent = 'No pins found.'; return; }
+        if (markerLayer) map.removeLayer(markerLayer);
+        markerLayer = L.geoJSON(fc, {
+          pointToLayer: (f, latlng) => L.marker(latlng),
+          onEachFeature: (f, layer) => {
+            layer.bindPopup(`<strong>${f.properties.name}</strong><br><small>${f.properties.display_name}</small>`);
+          }
+        }).addTo(map);
+        map.fitBounds(markerLayer.getBounds(), { padding:[20,20] });
+        routeInfo.textContent = `Pinned ${fc.features.length} places.`;
+      } catch (err) {
+        console.error(err);
+        routeInfo.textContent = 'Pinpoints error: ' + err.message;
+        alert('Pinpoints error: ' + err.message);
+      } finally {
+        setTimeout(()=>{ routeInfo.textContent = ''; }, 3500);
+      }
+    }
+
+    // Auto-pin & center (same but may be used for convenience)
+    async function autoPin() { await pinItinerary(); }
+
+    document.getElementById('pinBtn')?.addEventListener('click', (e)=> { e.preventDefault(); pinItinerary(); });
+    document.getElementById('autoPinBtn')?.addEventListener('click', (e)=> { e.preventDefault(); autoPin(); });
+
+    // Chat modify structured: sends instruction + current itinerary, expects strict JSON {itinerary_text, places}
+    async function applyChatInstruction() {
+      const input = document.getElementById('chatInput');
+      const status = document.getElementById('chatStatus');
+      const pre = document.getElementById('itineraryText');
+      if (!input || !pre) return alert('Chat or itinerary missing.');
+      const instr = input.value.trim();
+      const current = pre.innerText.trim();
+      if (!instr) return alert('Write an instruction.');
+
+      status.textContent = 'Applying changes...';
+      document.getElementById('sendChatBtn').disabled = true;
+
+      try {
+        const res = await fetch('/chat_modify_structured', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ instruction: instr, current_itinerary: current })
+        });
+        if (!res.ok) { const p = await res.json().catch(()=>({error:res.statusText})); throw new Error(p.error || res.statusText); }
+        const data = await res.json();
+
+        // Strict server returns: { itinerary_text: "...", places: [...] }
+        let updated = null;
+        let places = [];
+
+        if (data && typeof data === 'object') {
+          updated = data.itinerary_text || data.itinerary || null;
+          if (Array.isArray(data.places)) places = data.places;
+        } else if (typeof data === 'string') {
+          // fallback: try parse string as JSON then extract
+          try {
+            const parsed = JSON.parse(data);
+            updated = parsed.itinerary || parsed.itinerary_text || null;
+            if (Array.isArray(parsed.places)) places = parsed.places;
+          } catch (e) {
+            updated = data;
+          }
+        }
+
+        if (!updated) throw new Error('No updated itinerary returned.');
+
+        // push undo
+        window._itinerary_undo = window._itinerary_undo || [];
+        window._itinerary_undo.push(current);
+
+        // unescape if the server accidentally returned a quoted JSON string
+        try {
+          if (/^".*"$/.test(updated.trim())) {
+            updated = JSON.parse(updated);
+          }
+        } catch (e) { /* ignore */ }
+
+        pre.innerText = updated;
+        status.textContent = 'Itinerary updated.';
+
+        // auto-pin places if provided
+        if (places && places.length) {
+          try {
+            const pinRes = await fetch('/pinpoints', {
+              method: 'POST',
+              headers: {'Content-Type':'application/json'},
+              body: JSON.stringify({ places: places, limit: 20 })
+            });
+            if (pinRes.ok) {
+              const fc = await pinRes.json();
+              if (markerLayer) map.removeLayer(markerLayer);
+              markerLayer = L.geoJSON(fc, {
+                pointToLayer: (f, latlng) => L.marker(latlng),
+                onEachFeature: (f, layer) => layer.bindPopup(`<strong>${f.properties.name}</strong><br><small>${f.properties.display_name}</small>`)
+              }).addTo(map);
+              if (fc.features && fc.features.length) map.fitBounds(markerLayer.getBounds(), { padding:[20,20] });
+            }
+          } catch (e) { console.warn('Auto-pin failed', e); }
+        }
+
+        input.value = '';
+      } catch (err) {
+        console.error(err);
+        status.textContent = 'Error: ' + err.message;
+        alert('Chat modify error: ' + err.message);
+      } finally {
+        document.getElementById('sendChatBtn').disabled = false;
+        setTimeout(()=>{ chatStatus.textContent=''; }, 3500);
+      }
+    }
+
+    document.getElementById('sendChatBtn')?.addEventListener('click', (e)=> { e.preventDefault(); applyChatInstruction(); });
+
+    document.getElementById('undoBtn')?.addEventListener('click', (e)=> {
+      e.preventDefault();
+      window._itinerary_undo = window._itinerary_undo || [];
+      const prev = window._itinerary_undo.pop();
+      if (!prev) return alert('Nothing to undo.');
+      document.getElementById('itineraryText').innerText = prev;
+    });
+
+    // center on destination if prefilled
+    (function centerOnDest(){
+      const destRaw = document.getElementById('destInput').value.trim();
+      if (!destRaw) return;
+      if (isLatLng(destRaw)) {
+        const [lat,lng] = destRaw.split(',').map(x=>parseFloat(x));
+        map.setView([lat,lng], 11); L.marker([lat,lng]).addTo(map);
+      } else {
+        fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(destRaw), { headers:{'User-Agent':'novatripai/1.0'} })
+          .then(r=>r.json()).then(data=>{ if (data && data[0]) { const lat=parseFloat(data[0].lat), lon=parseFloat(data[0].lon); map.setView([lat,lon],11); L.marker([lat,lon]).addTo(map); } })
+          .catch(()=>{});
+      }
+    })();
+  </script>
 </body>
 </html>
