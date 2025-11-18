@@ -86,8 +86,6 @@ http://127.0.0.1:5000/
 
 ## 🔮 Future Scope
 
-- PDF export  
-- Map integration  
 - Live flight/hotel APIs  
 - Saved itineraries  
 - Mobile UI  
