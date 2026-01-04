@@ -56,7 +56,14 @@ def generate_itinerary_via_groq(prompt_text: str) -> str:
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[
-                {"role": "system", "content": "You are a travel assistant. Provide a detailed day-by-day itinerary including activities, food suggestions with approximate costs, a daily total cost estimate, and a list of places to visit for each day. Format the output clearly."},
+                {"role": "system", "content": (
+                    "You are a travel assistant. Provide a detailed day-by-day itinerary including activities, "
+                    "food suggestions with approximate costs, a daily total cost estimate, and a list of places to visit for each day. "
+                    "Format the output clearly. "
+                    "**Crucially, aim to utilize at least 70% of the provided budget, scaling the quality of experiences "
+                    "and comfort level (e.g., accommodation, transport, activities) to match the budget.** "
+                    "For higher budgets, suggest premium experiences. Do not exceed the total budget."
+                )},
                 {"role": "user", "content": prompt_text}
             ],
             max_tokens=LLM_MAX_TOKENS

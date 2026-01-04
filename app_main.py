@@ -14,7 +14,7 @@ from flask import (
 from database import db, User, Trip, ItineraryDay, init_db
 from auth import register_user, login_user, logout_user, login_required, get_current_user
 from ai_service import generate_itinerary_via_groq
-from validation import validate_itinerary, parse_daily_cost, parse_places_per_day
+from validation import validate_itinerary, parse_daily_cost, parse_places_per_day, MIN_UTILIZATION # Import MIN_UTILIZATION
 
 # Optional PDF library
 try:
@@ -155,6 +155,86 @@ def pdf_from_text_reportlab(text: str, title: str = "Itinerary") -> BytesIO:
     return buffer
 
 # -----------------------
+# Budget Utilization Scaling Logic
+# -----------------------
+def scale_itinerary_content(parsed_days_data: list, user_budget_value: int) -> (list, str):
+    """
+    Scales up an itinerary's content and estimated costs to better utilize the budget.
+    This is a rule-based simulation for academic purposes.
+
+    Args:
+        parsed_days_data (list): List of dicts, each representing a day's itinerary.
+        user_budget_value (int): The numeric value of the user's total budget.
+
+    Returns:
+        tuple: (scaled_days_data: list, scaled_itinerary_text: str)
+    """
+    scaled_days_data = []
+    current_total_cost = sum(day['cost'] for day in parsed_days_data)
+    target_min_cost = int(user_budget_value * MIN_UTILIZATION)
+    
+    # Calculate how much more budget needs to be utilized
+    budget_to_add = target_min_cost - current_total_cost
+    if budget_to_add <= 0:
+        # No scaling needed or already over target, return original
+        return parsed_days_data, "\n\n".join([d['description'] for d in parsed_days_data])
+
+    # Simple scaling rules and their simulated costs
+    scaling_options = [
+        ("Upgrade to premium accommodation for enhanced comfort.", 1500),
+        ("Include a guided cultural tour or local workshop.", 800),
+        ("Enjoy a fine dining experience at a highly-rated restaurant.", 1200),
+        ("Utilize private car service for comfortable and flexible transport.", 1000),
+        ("Add a relaxing spa session or wellness activity.", 700),
+        ("Explore an additional historical site or museum with an expert guide.", 600),
+    ]
+    
+    # Distribute scaling options across days to reach target budget
+    days_count = len(parsed_days_data)
+    scaling_index = 0
+    added_cost_total = 0
+
+    for i, day_data in enumerate(parsed_days_data):
+        new_description = day_data['description']
+        new_cost = day_data['cost']
+        
+        # Add scaling options until budget_to_add is met or options run out
+        while scaling_index < len(scaling_options) and added_cost_total < budget_to_add:
+            option_desc, option_cost = scaling_options[scaling_index]
+            
+            # Ensure we don't exceed the total user budget
+            if (current_total_cost + added_cost_total + option_cost) <= user_budget_value:
+                new_description += f"\n - {option_desc}"
+                new_cost += option_cost
+                added_cost_total += option_cost
+                scaling_index += 1
+            else:
+                # Cannot add more without exceeding budget
+                break
+        
+        # Update the cost line in the description
+        # Find existing cost line and replace it, or add if missing
+        cost_line_match = re.search(r'(Cost:\s*\d+\s*(?:INR|USD|EUR)?)', new_description, re.IGNORECASE)
+        if cost_line_match:
+            new_description = new_description.replace(cost_line_match.group(0), f"Cost: {new_cost} INR")
+        else:
+            # If no cost line, append it (simple append, might need better placement)
+            new_description += f"\nCost: {new_cost} INR"
+
+        scaled_days_data.append({
+            'day_number': day_data['day_number'],
+            'description': new_description,
+            'cost': new_cost,
+            'places': day_data['places'] # Places are not scaled in this simple model
+        })
+    
+    # Reconstruct the full itinerary text from the scaled data
+    scaled_itinerary_text = "\n\n".join([d['description'] for d in scaled_days_data])
+    
+    return scaled_days_data, scaled_itinerary_text
+
+
+# -----------------------
 # Authentication Routes
 # -----------------------
 
@@ -265,6 +345,7 @@ def home():
                                    trip_type=trip_type)
 
         # Construct prompt for the AI service
+        # The AI service's system prompt is already updated to be budget-aware.
         prompt = (
             "Create a concise day-by-day itinerary.\n"
             f"Destination: {destination}\n"
@@ -301,14 +382,57 @@ def home():
         aligned = align_itinerary_text(cleaned)
         
         # --- Validation Layer ---
-        is_valid, validation_message, parsed_days_data = validate_itinerary(aligned, budget, max_places_per_day=5)
+        # The validate_itinerary function now returns a needs_scaling flag
+        is_valid, validation_message, parsed_days_data, needs_scaling = validate_itinerary(aligned, budget, max_places_per_day=5)
 
-        if not is_valid:
+        final_itinerary_text = aligned
+        final_parsed_days_data = parsed_days_data
+
+        if not is_valid and not needs_scaling: # If it's a hard invalidation (e.g., exceeded budget, structural error)
             flash(f"Itinerary validation failed: {validation_message}", "error")
-            # Display the unvalidated itinerary for user to see what AI generated
-            result_itinerary_text = aligned
+            result_itinerary_text = aligned # Display the unvalidated itinerary for user to see what AI generated
             session['last_raw_itinerary'] = raw_ai_response # Store raw for potential debug
-        else:
+        elif needs_scaling: # If valid but under-utilized, attempt to scale
+            current_app.logger.info("Itinerary under-utilized budget, attempting to scale.")
+            scaled_days_data, scaled_text = scale_itinerary_content(parsed_days_data, parse_daily_cost(budget))
+            
+            # Re-validate the scaled itinerary to ensure it now meets utilization and doesn't exceed budget
+            is_scaled_valid, scaled_validation_message, re_parsed_scaled_data, _ = validate_itinerary(scaled_text, budget, max_places_per_day=5)
+
+            if not is_scaled_valid:
+                flash(f"Scaled itinerary failed re-validation: {scaled_validation_message}. Original issue: {validation_message}", "error")
+                result_itinerary_text = aligned # Fallback to original if scaling makes it invalid
+                session['last_raw_itinerary'] = raw_ai_response
+            else:
+                flash("Itinerary scaled up to better utilize your budget!", "info")
+                final_itinerary_text = scaled_text
+                final_parsed_days_data = re_parsed_scaled_data
+                # Proceed to save the scaled itinerary
+                
+                # If valid, save the new trip and its itinerary days to the database
+                new_trip = Trip(
+                    user_id=user.id,
+                    destination=destination,
+                    budget=budget,
+                    days=days,
+                    trip_type=trip_type
+                )
+                db.session.add(new_trip)
+                db.session.flush() # Get new_trip.id before committing
+
+                for day_data in final_parsed_days_data:
+                    itinerary_day = ItineraryDay(
+                        trip_id=new_trip.id,
+                        day_number=day_data['day_number'],
+                        description=day_data['description']
+                    )
+                    db.session.add(itinerary_day)
+                
+                db.session.commit()
+                flash("Itinerary generated and saved successfully!", "success")
+                # Redirect to view the newly created trip
+                return redirect(url_for('home', trip_id=new_trip.id))
+        else: # Itinerary is valid and meets utilization (or no budget provided)
             # If valid, save the new trip and its itinerary days to the database
             new_trip = Trip(
                 user_id=user.id,
@@ -320,7 +444,7 @@ def home():
             db.session.add(new_trip)
             db.session.flush() # Get new_trip.id before committing
 
-            for day_data in parsed_days_data:
+            for day_data in final_parsed_days_data:
                 itinerary_day = ItineraryDay(
                     trip_id=new_trip.id,
                     day_number=day_data['day_number'],
@@ -627,12 +751,12 @@ def chat_modify_structured():
     itinerary_text = align_itinerary_text(itinerary_text)
     
     # --- Validation Layer for modified itinerary ---
-    # Re-validate the modified itinerary against the trip's original budget
-    is_valid, validation_message, parsed_days_data = validate_itinerary(itinerary_text, current_trip.budget, max_places_per_day=5)
+    # For chat modify, we treat under-utilization as an error, not a scaling opportunity.
+    # The user explicitly asked for a modification, so the AI should have handled the budget.
+    is_valid, validation_message, parsed_days_data, needs_scaling = validate_itinerary(itinerary_text, current_trip.budget, max_places_per_day=5)
 
-    if not is_valid:
-        # If modified itinerary fails validation, reject it and inform user
-        return jsonify({"error": f"Modified itinerary failed validation: {validation_message}"}), 400
+    if not is_valid or needs_scaling: # If modified itinerary fails validation or is under-utilized, reject it
+        return jsonify({"error": f"Modified itinerary failed validation: {validation_message}. Please refine your instruction."}), 400
     
     # If valid, update the database with the new itinerary
     # Delete old itinerary days associated with this trip
