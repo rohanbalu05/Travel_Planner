@@ -32,6 +32,9 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key")
 
 # Groq client (if available + key present)
 GROQ_KEY = os.environ.get("GROQ_API_KEY")
+# --- ADDED DEBUG LINE ---
+print(f"DEBUG: GROQ_API_KEY read by app: {'[KEY FOUND]' if GROQ_KEY else '[KEY NOT FOUND]'}")
+# --- END DEBUG LINE ---
 if Groq and GROQ_KEY:
     client = Groq(api_key=GROQ_KEY)
 else:
