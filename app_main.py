@@ -335,6 +335,7 @@ def home():
         budget = request.form.get("budget", "").strip()
         days = request.form.get("days", type=int) # Expect integer
         trip_type = request.form.get("trip_type", "").strip()
+        num_people = request.form.get("num_people", type=int, default=1)
 
         # Input validation for itinerary generation form
         if not destination or not days or days <= 0:
@@ -348,7 +349,8 @@ def home():
                                    destination=destination,
                                    budget=budget,
                                    days=days,
-                                   trip_type=trip_type)
+                                   trip_type=trip_type,
+                                   num_people=num_people)
 
         # Construct prompt for the AI service
         # The AI service's system prompt is already updated to be budget-aware.
@@ -357,7 +359,8 @@ def home():
             f"Destination: {destination}\n"
             f"Budget: {budget}\n"
             f"Duration: {days} days\n"
-            f"Trip type: {trip_type}\n\n"
+            f"Trip type: {trip_type}\n"
+            f"Number of people: {num_people}\n\n"
             "Include:\n"
             "- Daywise schedule with timings\n"
             "- 2 food suggestions per day with approximate costs (e.g., 'approx 500 INR')\n"
@@ -422,7 +425,8 @@ def home():
                     destination=destination,
                     budget=budget,
                     days=days,
-                    trip_type=trip_type
+                    trip_type=trip_type,
+                    num_people=num_people
                 )
                 db.session.add(new_trip)
                 db.session.flush() # Get new_trip.id before committing
@@ -446,7 +450,8 @@ def home():
                 destination=destination,
                 budget=budget,
                 days=days,
-                trip_type=trip_type
+                trip_type=trip_type,
+                num_people=num_people
             )
             db.session.add(new_trip)
             db.session.flush() # Get new_trip.id before committing
@@ -474,7 +479,8 @@ def home():
                            destination=request.form.get("destination", ""),
                            budget=request.form.get("budget", ""),
                            days=request.form.get("days", 3),
-                           trip_type=request.form.get("trip_type", ""))
+                           trip_type=request.form.get("trip_type", ""),
+                           num_people=request.form.get("num_people", 1))
 
 @app.route("/view_trip/<int:trip_id>", methods=["GET", "POST"]) # FIX: Added POST method
 @login_required
@@ -491,6 +497,7 @@ def view_trip(trip_id):
         budget = request.form.get("budget", "").strip()
         days = request.form.get("days", type=int)
         trip_type = request.form.get("trip_type", "").strip()
+        num_people = request.form.get("num_people", type=int, default=1)
 
         # Input validation for itinerary generation form
         if not destination or not days or days <= 0:
@@ -503,6 +510,7 @@ def view_trip(trip_id):
         trip.budget = budget
         trip.days = days
         trip.trip_type = trip_type
+        trip.num_people = num_people
         db.session.add(trip) # Add to session to track changes
 
         # Construct prompt for the AI service
@@ -511,7 +519,8 @@ def view_trip(trip_id):
             f"Destination: {destination}\n"
             f"Budget: {budget}\n"
             f"Duration: {days} days\n"
-            f"Trip type: {trip_type}\n\n"
+            f"Trip type: {trip_type}\n"
+            f"Number of people: {num_people}\n\n"
             "Include:\n"
             "- Daywise schedule with timings\n"
             "- 2 food suggestions per day with approximate costs (e.g., 'approx 500 INR')\n"
@@ -609,7 +618,8 @@ def view_trip(trip_id):
                            destination=trip.destination,
                            budget=trip.budget,
                            days=trip.days,
-                           trip_type=trip.trip_type)
+                           trip_type=trip.trip_type,
+                           num_people=trip.num_people if trip.num_people else 1)
 
 @app.route("/delete_trip/<int:trip_id>", methods=["POST"])
 @login_required

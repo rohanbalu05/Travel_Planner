@@ -873,6 +873,18 @@
             </div>
           </div>
 
+          <div class="form-row">
+            <div class="form-group">
+              <label for="num_people">Number of People</label>
+              <input type="number"
+                     id="num_people"
+                     name="num_people"
+                     min="1"
+                     placeholder="e.g., 2"
+                     value="{{ num_people|default(1) }}" />
+            </div>
+          </div>
+
           <button type="submit" class="btn btn-primary">
             {% if current_trip %}🔄 Regenerate Itinerary{% else %}🚀 Generate Itinerary{% endif %}
           </button>

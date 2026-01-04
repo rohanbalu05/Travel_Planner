@@ -29,6 +29,7 @@ class Trip(db.Model):
     budget = db.Column(db.String(50)) # Stored as string for flexibility (e.g., "20000 INR")
     days = db.Column(db.Integer, nullable=False)
     trip_type = db.Column(db.String(50))
+    num_people = db.Column(db.Integer, default=1)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     # Relationship to itinerary days, allowing access to trip.itinerary_days
     itinerary_days = db.relationship('ItineraryDay', backref='trip', lazy=True, order_by='ItineraryDay.day_number')
