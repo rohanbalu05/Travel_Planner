@@ -37,6 +37,7 @@ init_db(app)
 MAX_ITINERARY_CHARS = 100000
 LLM_MAX_TOKENS = 4000
 LLM_FINISH_TOKENS = 2000
+DEFAULT_RADIUS_KM = 100 # FIX: Define a default radius for geographic filtering
 
 # In-memory cache for geocoding results
 _geocode_cache = {}
@@ -102,6 +103,24 @@ def align_itinerary_text(text: str) -> str:
     joined = '\n'.join(out_lines)
     joined = re.sub(r'\n{3,}', '\n\n', joined)
     return joined
+
+# FIX: Haversine distance function for geographic filtering
+def haversine_distance(lat1, lon1, lat2, lon2):
+    R = 6371  # Radius of Earth in kilometers
+
+    lat1_rad = math.radians(lat1)
+    lon1_rad = math.radians(lon1)
+    lat2_rad = math.radians(lat2)
+    lon2_rad = math.radians(lon2)
+
+    dlon = lon2_rad - lon1_rad
+    dlat = lat2_rad - lat1_rad
+
+    a = math.sin(dlat / 2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    distance = R * c
+    return distance
 
 # -----------------------
 # PDF generation helper (reportlab) - kept here as it's a specific app feature
@@ -254,7 +273,8 @@ def register():
         # Basic input validation
         if not username or not email or not password:
             flash("All fields are required for registration.", "error")
-            return render_template("index_page.html", active_tab="register", current_trip_id=None) # FIX: Pass current_trip_id=None
+            # FIX: Pass current_trip_id=None to prevent TypeError when rendering index_page.html
+            return render_template("index_page.html", active_tab="register", current_trip_id=None) 
 
         success, message = register_user(username, email, password)
         if success:
@@ -262,7 +282,8 @@ def register():
             return redirect(url_for('login')) # Redirect to login after successful registration
         else:
             flash(message, "error")
-    return render_template("index_page.html", active_tab="register", current_trip_id=None) # FIX: Pass current_trip_id=None
+    # FIX: Pass current_trip_id=None to prevent TypeError when rendering index_page.html
+    return render_template("index_page.html", active_tab="register", current_trip_id=None) 
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -276,7 +297,8 @@ def login():
         # Basic input validation
         if not username or not password:
             flash("Username and password are required.", "error")
-            return render_template("index_page.html", active_tab="login", current_trip_id=None) # FIX: Pass current_trip_id=None
+            # FIX: Pass current_trip_id=None to prevent TypeError when rendering index_page.html
+            return render_template("index_page.html", active_tab="login", current_trip_id=None) 
 
         success, message = login_user(username, password)
         if success:
@@ -284,7 +306,8 @@ def login():
             return redirect(url_for('home')) # Redirect to home after successful login
         else:
             flash(message, "error")
-    return render_template("index_page.html", active_tab="login", current_trip_id=None) # FIX: Pass current_trip_id=None
+    # FIX: Pass current_trip_id=None to prevent TypeError when rendering index_page.html
+    return render_template("index_page.html", active_tab="login", current_trip_id=None) 
 
 @app.route("/logout")
 def logout():
@@ -475,7 +498,7 @@ def home():
                            days=request.form.get("days", 3),
                            trip_type=request.form.get("trip_type", ""))
 
-@app.route("/view_trip/<int:trip_id>", methods=["GET", "POST"]) # FIX: Added POST method
+@app.route("/view_trip/<int:trip_id>", methods=["GET", "POST"])
 @login_required
 def view_trip(trip_id):
     """
@@ -485,7 +508,7 @@ def view_trip(trip_id):
     # Fetch the trip, ensuring it belongs to the current user
     trip = Trip.query.filter_by(id=trip_id, user_id=user.id).first_or_404()
 
-    if request.method == "POST": # FIX: Handle POST requests for updating an existing trip
+    if request.method == "POST": # Handle POST requests for updating an existing trip
         destination = request.form.get("destination", "").strip()
         budget = request.form.get("budget", "").strip()
         days = request.form.get("days", type=int)
@@ -660,10 +683,12 @@ def geocode_place_simple(place):
         _geocode_cache[place] = None # Cache negative result
         return None
 
-def get_itinerary_map_locations(itinerary_text: str) -> list:
+def get_itinerary_map_locations(itinerary_text: str, destination_name: str = None, 
+                                destination_lat: float = None, destination_lng: float = None) -> list:
     """
     Extracts place names from the itinerary text, geocodes them, and returns
     a list of dictionaries suitable for map markers.
+    FIX: Now includes geographic filtering based on destination.
     """
     locations = []
     # Use the existing validation function to parse days and places
@@ -673,8 +698,37 @@ def get_itinerary_map_locations(itinerary_text: str) -> list:
         day_number = day_data['day_number']
         for place_name in day_data['places']:
             geo_data = geocode_place_simple(place_name)
+            
+            # FIX: Geographic filtering logic
+            is_valid_location = False
             if geo_data:
                 lat, lng, display_name = geo_data
+                if destination_lat is not None and destination_lng is not None:
+                    distance = haversine_distance(destination_lat, destination_lng, lat, lng)
+                    if distance <= DEFAULT_RADIUS_KM:
+                        is_valid_location = True
+                    else:
+                        # FIX: Smart re-geocoding if outside initial radius
+                        current_app.logger.debug(f"Place '{place_name}' outside radius ({distance:.2f} km). Retrying with destination context.")
+                        if destination_name:
+                            retry_query = f"{place_name}, {destination_name}, India" # Assuming India for this project
+                            retry_geo_data = geocode_place_simple(retry_query)
+                            if retry_geo_data:
+                                retry_lat, retry_lng, retry_display_name = retry_geo_data
+                                retry_distance = haversine_distance(destination_lat, destination_lng, retry_lat, retry_lng)
+                                if retry_distance <= DEFAULT_RADIUS_KM:
+                                    lat, lng, display_name = retry_lat, retry_lng, retry_display_name
+                                    is_valid_location = True
+                                    current_app.logger.debug(f"Retry successful for '{place_name}' at {retry_distance:.2f} km.")
+                                else:
+                                    current_app.logger.debug(f"Retry for '{place_name}' still outside radius ({retry_distance:.2f} km). Skipping.")
+                            else:
+                                current_app.logger.debug(f"Retry geocoding failed for '{place_name}'. Skipping.")
+                else:
+                    # If no destination anchor, accept all geocoded places (fallback)
+                    is_valid_location = True
+            
+            if is_valid_location:
                 locations.append({
                     "place": display_name,
                     "lat": lat,
@@ -683,27 +737,36 @@ def get_itinerary_map_locations(itinerary_text: str) -> list:
                 })
     return locations
 
-@app.route("/api/itinerary-locations/<int:trip_id>") # FIX: Changed route to accept trip_id
+@app.route("/api/itinerary-locations/<int:trip_id>")
 @login_required
-def api_itinerary_locations(trip_id): # FIX: Added trip_id parameter
+def api_itinerary_locations(trip_id):
     """
-    API endpoint to return geocoded locations for a specific itinerary.
+    API endpoint to return geocoded locations for a specific itinerary,
+    now with geographic filtering based on the trip's destination.
     """
     user = get_current_user()
     
-    # FIX: Fetch the trip directly using the trip_id from the URL
     trip = Trip.query.filter_by(id=trip_id, user_id=user.id).first()
     if not trip:
         return jsonify({"error": "Trip not found or you don't have access."}), 404
 
-    # Reconstruct itinerary text from DB for processing
     itinerary_parts = [day.description for day in trip.itinerary_days]
     itinerary_to_process = "\n\n".join(itinerary_parts)
 
     if not itinerary_to_process:
         return jsonify({"error": "No itinerary content found for this trip."}), 404
 
-    locations = get_itinerary_map_locations(itinerary_to_process)
+    # FIX: Geocode the main destination to use as an anchor for filtering
+    destination_geo = geocode_place_simple(trip.destination)
+    destination_lat, destination_lng, _ = destination_geo if destination_geo else (None, None, None)
+
+    # FIX: Pass destination coordinates and name to the location extraction function
+    locations = get_itinerary_map_locations(
+        itinerary_to_process, 
+        destination_name=trip.destination,
+        destination_lat=destination_lat, 
+        destination_lng=destination_lng
+    )
     return jsonify(locations)
 
 
