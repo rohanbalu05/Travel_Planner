@@ -494,9 +494,10 @@
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{ maxZoom:19, attribution:'&copy; OpenStreetMap contributors' }).addTo(map);
 
     let routeLayer = null;
+    let itineraryMarkers = []; // Array to hold itinerary markers
     const routeInfo = document.getElementById('routeInfo');
 
-    const isLatLng = s => /^\s*-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?\s*$/.test(s);
+    const isLatLng = s => /^\s*-?\d+(\.\d+)?\s*,\s*-*-?\d+(\.\d+)?\s*$/.test(s);
 
     document.getElementById('useMyLocBtn')?.addEventListener('click', (ev)=>{
       ev.preventDefault();
@@ -566,6 +567,57 @@
       }
     })();
 
+    // ----- Itinerary Map Markers Logic -----
+    function clearItineraryMarkers() {
+      itineraryMarkers.forEach(marker => map.removeLayer(marker));
+      itineraryMarkers = [];
+    }
+
+    function addItineraryMarkers(locations) {
+      if (!locations || locations.length === 0) return;
+
+      const bounds = new L.LatLngBounds();
+      locations.forEach(loc => {
+        if (loc.lat && loc.lng) {
+          const marker = L.marker([loc.lat, loc.lng]).addTo(map);
+          marker.bindPopup(`<b>${loc.place}</b><br>Day ${loc.day}`).openPopup();
+          itineraryMarkers.push(marker);
+          bounds.extend([loc.lat, loc.lng]);
+        }
+      });
+
+      if (bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [50, 50] });
+      }
+    }
+
+    async function fetchAndDisplayItineraryMarkers() {
+      clearItineraryMarkers(); // Clear existing markers first
+      const itineraryText = document.getElementById('itineraryText')?.innerText.trim();
+      if (!itineraryText) {
+        console.log("No itinerary text to display markers for.");
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/itinerary-locations');
+        if (!res.ok) {
+          const p = await res.json().catch(() => ({ error: res.statusText }));
+          throw new Error(p.error || res.statusText);
+        }
+        const locations = await res.json();
+        addItineraryMarkers(locations);
+      } catch (err) {
+        console.error('Error fetching itinerary locations:', err);
+        // Optionally display a flash message or update a status div
+      }
+    }
+
+    // Initial load of itinerary markers if an itinerary is present
+    {% if result %}
+      fetchAndDisplayItineraryMarkers();
+    {% endif %}
+
     // ----- Download, Chat modify, Undo handlers -----
     document.getElementById('downloadPdfBtn')?.addEventListener('click', async (ev)=>{
       ev.preventDefault();
@@ -625,6 +677,7 @@
         pre.innerText = updated;
         status.textContent = 'Itinerary updated.';
         input.value = '';
+        fetchAndDisplayItineraryMarkers(); // Update map markers after chat modification
       } catch(err){
         console.error(err);
         status.textContent = 'Error: ' + err.message;
@@ -641,6 +694,7 @@
       const prev = window._itinerary_undo.pop();
       if(!prev) return alert('Nothing to undo.');
       document.getElementById('itineraryText').innerText = prev;
+      fetchAndDisplayItineraryMarkers(); // Update map markers after undo
     });
 
   </script>

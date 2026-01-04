@@ -38,6 +38,9 @@ MAX_ITINERARY_CHARS = 100000
 LLM_MAX_TOKENS = 4000
 LLM_FINISH_TOKENS = 2000
 
+# In-memory cache for geocoding results
+_geocode_cache = {}
+
 # -----------------------
 # Helpers: sanitize, strip asterisks (moved here for general use)
 # -----------------------
@@ -522,7 +525,12 @@ def delete_trip(trip_id):
 def geocode_place_simple(place):
     """
     Geocodes a place name into latitude and longitude using OpenStreetMap Nominatim.
+    Uses an in-memory cache to avoid repeated API calls.
+    Returns (lat, lon, display_name) or None.
     """
+    if place in _geocode_cache:
+        return _geocode_cache[place]
+
     try:
         url = "https://nominatim.openstreetmap.org/search"
         params = {"q": place, "format": "json", "limit": 1}
@@ -531,12 +539,67 @@ def geocode_place_simple(place):
         r.raise_for_status()
         data = r.json()
         if not data:
+            _geocode_cache[place] = None # Cache negative result
             return None
         item = data[0]
-        return float(item["lat"]), float(item["lon"]), item.get("display_name", place)
+        result = (float(item["lat"]), float(item["lon"]), item.get("display_name", place))
+        _geocode_cache[place] = result # Cache positive result
+        return result
     except Exception:
         current_app.logger.exception(f"Geocoding failed for place: {place}")
+        _geocode_cache[place] = None # Cache negative result
         return None
+
+def get_itinerary_map_locations(itinerary_text: str) -> list:
+    """
+    Extracts place names from the itinerary text, geocodes them, and returns
+    a list of dictionaries suitable for map markers.
+    """
+    locations = []
+    # Use the existing validation function to parse days and places
+    _, _, parsed_days_data, _ = validate_itinerary(itinerary_text, user_budget="0 INR") # Budget doesn't matter for place parsing
+
+    for day_data in parsed_days_data:
+        day_number = day_data['day_number']
+        for place_name in day_data['places']:
+            geo_data = geocode_place_simple(place_name)
+            if geo_data:
+                lat, lng, display_name = geo_data
+                locations.append({
+                    "place": display_name,
+                    "lat": lat,
+                    "lng": lng,
+                    "day": day_number
+                })
+    return locations
+
+@app.route("/api/itinerary-locations")
+@login_required
+def api_itinerary_locations():
+    """
+    API endpoint to return geocoded locations for the current itinerary.
+    """
+    user = get_current_user()
+    current_trip_id = session.get('current_trip_id')
+    itinerary_text_from_session = session.get('last_raw_itinerary')
+
+    itinerary_to_process = None
+
+    if current_trip_id:
+        trip = Trip.query.filter_by(id=current_trip_id, user_id=user.id).first()
+        if trip:
+            itinerary_parts = [day.description for day in trip.itinerary_days]
+            itinerary_to_process = "\n\n".join(itinerary_parts)
+    elif itinerary_text_from_session:
+        # Fallback to session if no trip_id is active (e.g., after initial generation before redirect)
+        itinerary_to_process = itinerary_text_from_session
+
+    if not itinerary_to_process:
+        return jsonify({"error": "No active itinerary found to extract locations."}), 404
+
+    locations = get_itinerary_map_locations(itinerary_to_process)
+    return jsonify(locations)
+
 
 @app.route("/route")
 def get_route():
