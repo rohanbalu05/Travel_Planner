@@ -1,4 +1,6 @@
 Flask
-requests
-reportlab
 groq
+requests
+Flask-SQLAlchemy
+Werkzeug
+reportlab
