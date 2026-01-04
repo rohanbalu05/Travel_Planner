@@ -254,7 +254,7 @@ def register():
         # Basic input validation
         if not username or not email or not password:
             flash("All fields are required for registration.", "error")
-            return render_template("index_page.html", active_tab="register")
+            return render_template("index_page.html", active_tab="register", current_trip_id=None) # FIX: Pass current_trip_id=None
 
         success, message = register_user(username, email, password)
         if success:
@@ -262,7 +262,7 @@ def register():
             return redirect(url_for('login')) # Redirect to login after successful registration
         else:
             flash(message, "error")
-    return render_template("index_page.html", active_tab="register")
+    return render_template("index_page.html", active_tab="register", current_trip_id=None) # FIX: Pass current_trip_id=None
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -276,7 +276,7 @@ def login():
         # Basic input validation
         if not username or not password:
             flash("Username and password are required.", "error")
-            return render_template("index_page.html", active_tab="login")
+            return render_template("index_page.html", active_tab="login", current_trip_id=None) # FIX: Pass current_trip_id=None
 
         success, message = login_user(username, password)
         if success:
@@ -284,7 +284,7 @@ def login():
             return redirect(url_for('home')) # Redirect to home after successful login
         else:
             flash(message, "error")
-    return render_template("index_page.html", active_tab="login")
+    return render_template("index_page.html", active_tab="login", current_trip_id=None) # FIX: Pass current_trip_id=None
 
 @app.route("/logout")
 def logout():
@@ -343,6 +343,7 @@ def home():
                                    user_trips=user_trips, 
                                    result=result_itinerary_text, 
                                    current_trip=current_trip,
+                                   current_trip_id=session.get('current_trip_id'), # Pass current_trip_id to the frontend
                                    destination=destination,
                                    budget=budget,
                                    days=days,
@@ -375,6 +376,7 @@ def home():
                                    user_trips=user_trips, 
                                    result=result_itinerary_text, 
                                    current_trip=current_trip,
+                                   current_trip_id=session.get('current_trip_id'), # Pass current_trip_id to the frontend
                                    destination=destination,
                                    budget=budget,
                                    days=days,
