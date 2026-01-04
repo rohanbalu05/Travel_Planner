@@ -301,6 +301,7 @@ def logout():
 def home():
     """
     Handles itinerary generation, display of user's trips, and form submission.
+    This route is primarily for generating *new* itineraries.
     """
     user = get_current_user()
     if not user: # This check is mostly for type hinting, @login_required should prevent this
@@ -472,16 +473,121 @@ def home():
                            days=request.form.get("days", 3),
                            trip_type=request.form.get("trip_type", ""))
 
-@app.route("/view_trip/<int:trip_id>")
+@app.route("/view_trip/<int:trip_id>", methods=["GET", "POST"]) # FIX: Added POST method
 @login_required
 def view_trip(trip_id):
     """
-    Displays a specific saved trip's itinerary.
+    Displays a specific saved trip's itinerary (GET) or regenerates/updates it (POST).
     """
     user = get_current_user()
     # Fetch the trip, ensuring it belongs to the current user
     trip = Trip.query.filter_by(id=trip_id, user_id=user.id).first_or_404()
-    
+
+    if request.method == "POST": # FIX: Handle POST requests for updating an existing trip
+        destination = request.form.get("destination", "").strip()
+        budget = request.form.get("budget", "").strip()
+        days = request.form.get("days", type=int)
+        trip_type = request.form.get("trip_type", "").strip()
+
+        # Input validation for itinerary generation form
+        if not destination or not days or days <= 0:
+            flash("Destination and number of days (must be positive) are required.", "error")
+            # Redirect back to GET to display the form with error
+            return redirect(url_for('view_trip', trip_id=trip.id))
+
+        # Update the existing trip details
+        trip.destination = destination
+        trip.budget = budget
+        trip.days = days
+        trip.trip_type = trip_type
+        db.session.add(trip) # Add to session to track changes
+
+        # Construct prompt for the AI service
+        prompt = (
+            "Create a concise day-by-day itinerary.\n"
+            f"Destination: {destination}\n"
+            f"Budget: {budget}\n"
+            f"Duration: {days} days\n"
+            f"Trip type: {trip_type}\n\n"
+            "Include:\n"
+            "- Daywise schedule with timings\n"
+            "- 2 food suggestions per day with approximate costs (e.g., 'approx 500 INR')\n"
+            "- Rough total cost estimate per day (e.g., 'Cost: 2000 INR')\n"
+            "- A list of places to visit for each day (e.g., 'Places: Baga Beach, Local Market')\n"
+            "- One safety tip\n"
+            "Be clear and user-friendly."
+        )
+        
+        raw_ai_response = generate_itinerary_via_groq(prompt)
+
+        # Handle AI API failure
+        if raw_ai_response.startswith("ERROR:"):
+            flash(f"AI generation failed: {raw_ai_response}", "error")
+            db.session.rollback() # Rollback trip updates if AI fails
+            return redirect(url_for('view_trip', trip_id=trip.id))
+
+        # Sanitize and clean AI response for validation and display
+        sanitized = sanitize_itinerary_text(raw_ai_response)
+        cleaned = strip_asterisks(sanitized)
+        aligned = align_itinerary_text(cleaned)
+        
+        # --- Validation Layer ---
+        is_valid, validation_message, parsed_days_data, needs_scaling = validate_itinerary(aligned, budget, max_places_per_day=5)
+
+        final_itinerary_text = aligned
+        final_parsed_days_data = parsed_days_data
+
+        if not is_valid and not needs_scaling:
+            flash(f"Itinerary validation failed: {validation_message}", "error")
+            db.session.rollback() # Rollback trip updates if validation fails
+        elif needs_scaling:
+            current_app.logger.info("Itinerary under-utilized budget, attempting to scale.")
+            scaled_days_data, scaled_text = scale_itinerary_content(parsed_days_data, parse_daily_cost(budget))
+            
+            is_scaled_valid, scaled_validation_message, re_parsed_scaled_data, _ = validate_itinerary(scaled_text, budget, max_places_per_day=5)
+
+            if not is_scaled_valid:
+                flash(f"Scaled itinerary failed re-validation: {scaled_validation_message}. Original issue: {validation_message}", "error")
+                db.session.rollback() # Rollback if scaling makes it invalid
+            else:
+                flash("Itinerary scaled up to better utilize your budget!", "info")
+                final_itinerary_text = scaled_text
+                final_parsed_days_data = re_parsed_scaled_data
+                
+                # Delete old itinerary days and add new ones
+                ItineraryDay.query.filter_by(trip_id=trip.id).delete()
+                db.session.flush() # Ensure deletions are processed before adding new ones
+
+                for day_data in final_parsed_days_data:
+                    itinerary_day = ItineraryDay(
+                        trip_id=trip.id,
+                        day_number=day_data['day_number'],
+                        description=day_data['description']
+                    )
+                    db.session.add(itinerary_day)
+                
+                db.session.commit()
+                flash("Itinerary regenerated and saved successfully!", "success")
+        else: # Itinerary is valid and meets utilization (or no budget provided)
+            # Delete old itinerary days and add new ones
+            ItineraryDay.query.filter_by(trip_id=trip.id).delete()
+            db.session.flush() # Ensure deletions are processed before adding new ones
+
+            for day_data in final_parsed_days_data:
+                itinerary_day = ItineraryDay(
+                    trip_id=trip.id,
+                    day_number=day_data['day_number'],
+                    description=day_data['description']
+                )
+                db.session.add(itinerary_day)
+            
+            db.session.commit()
+            flash("Itinerary regenerated and saved successfully!", "success")
+        
+        # After POST, redirect to the GET version of the same page to display updated content
+        return redirect(url_for('view_trip', trip_id=trip.id))
+
+    # --- GET Request Handling ---
     # Reconstruct itinerary text from DB for display
     itinerary_parts = [day.description for day in trip.itinerary_days]
     result_itinerary_text = "\n\n".join(itinerary_parts)
