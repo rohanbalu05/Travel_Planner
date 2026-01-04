@@ -251,8 +251,6 @@ def scale_itinerary_content(parsed_days_data: list, user_budget_value: int) -> (
 @app.route("/register", methods=["GET", "POST"])
 def register():
     """Handles user registration."""
-    if 'user_id' in session:
-        return redirect(url_for('home'))
     if request.method == "POST":
         username = request.form.get("username")
         email = request.form.get("email")
@@ -273,8 +271,6 @@ def register():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     """Handles user login."""
-    if 'user_id' in session:
-        return redirect(url_for('home'))
     if request.method == "POST":
         username = request.form.get("username")
         password = request.form.get("password")
@@ -295,7 +291,7 @@ def login():
 def logout():
     """Handles user logout."""
     logout_user()
-    return redirect(url_for('home'))
+    return redirect(url_for('login'))
 
 # -----------------------
 # Main Application Routes
