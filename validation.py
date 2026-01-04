@@ -43,7 +43,7 @@ def validate_itinerary(itinerary_text: str, user_budget: str, max_places_per_day
         tuple: (is_valid: bool, message: str, parsed_days_data: list, needs_scaling: bool)
                `parsed_days_data` is a list of dicts, each containing:
                {'day_number': int, 'description': str, 'cost': int, 'places': list}
-               `needs_scaling` is True if the itinerary is valid but under-utilizes the budget.
+               `needs_scaling` is True if the itinerary is valid but under-utilization of budget.
     """
     lines = itinerary_text.splitlines()
     parsed_days_data = []
@@ -95,11 +95,15 @@ def validate_itinerary(itinerary_text: str, user_budget: str, max_places_per_day
 
     # If no days were parsed, the itinerary structure is invalid
     if not parsed_days_data:
+        # FIX: Return False for validity but still return empty parsed_days_data
+        # This allows the map to remain empty if the itinerary is truly unparseable,
+        # but doesn't prevent it from trying to add the destination marker.
         return False, "Itinerary structure not recognized. Please ensure it starts with 'Day 1:', 'Day 2:', etc.", [], False
 
     # Rule 1: Validate total itinerary does not exceed budget
     if user_budget_value > 0 and total_estimated_cost > user_budget_value:
-        return False, f"Total estimated cost ({total_estimated_cost} INR) exceeds your budget ({user_budget_value} INR). Please adjust your budget or regenerate.", [], False
+        # FIX: Return parsed_days_data even if validation fails, so map can still show places
+        return False, f"Total estimated cost ({total_estimated_cost} INR) exceeds your budget ({user_budget_value} INR). Please adjust your budget or regenerate.", parsed_days_data, False
 
     # Rule 2: Check for budget under-utilization
     # This is a soft failure; the itinerary is still 'valid' but needs scaling.
@@ -111,13 +115,17 @@ def validate_itinerary(itinerary_text: str, user_budget: str, max_places_per_day
     # Rule 3: Limit number of places per day
     for day_data in parsed_days_data:
         if len(day_data['places']) > max_places_per_day:
-            return False, f"Day {day_data['day_number']} has too many places ({len(day_data['places'])}). Please limit to {max_places_per_day} places per day.", [], False
+            # FIX: Return parsed_days_data even if validation fails, so map can still show places
+            return False, f"Day {day_data['day_number']} has too many places ({len(day_data['places'])}). Please limit to {max_places_per_day} places per day.", parsed_days_data, False
 
     # Rule 4: Enforce reasonable daily schedules (simple check: each day must have some descriptive content)
     for day_data in parsed_days_data:
         # An arbitrary length check to ensure some content exists for the day
-        if not day_data['description'] or len(day_data['description'].strip()) < 50:
-            return False, f"Day {day_data['day_number']} seems to have an incomplete schedule. Please ensure each day has activities.", [], False
+        # FIX: Lowered threshold to 20 characters to be less restrictive,
+        # as cleaning might reduce length.
+        if not day_data['description'] or len(day_data['description'].strip()) < 20: # FIX: Changed from 50 to 20
+            # FIX: Return parsed_days_data even if validation fails, so map can still show places
+            return False, f"Day {day_data['day_number']} seems to have an incomplete schedule. Please ensure each day has activities.", parsed_days_data, False
 
     # If all hard rules pass, return True for is_valid, along with the needs_scaling flag
     return True, "Itinerary validated successfully.", parsed_days_data, needs_scaling

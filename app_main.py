@@ -90,6 +90,10 @@ def align_itinerary_text(text: str) -> str:
         # remove leading whitespace
         s = re.sub(r'^[ \t]+', '', line)
 
+        # FIX: Remove markdown table separators and pipes
+        s = re.sub(r'\|[\s\-]+\|', '', s) # Remove table header separators like |---|---|
+        s = s.replace('|', '') # Remove remaining pipe characters
+
         # replace runs of bullet characters or leading hyphen/asterisk sequences with a single bullet "• "
         s = re.sub(r'^[\-\*\u2022\•\s]{1,6}', lambda m: '• ' if re.search(r'[\-\*\u2022\•]', m.group(0)) else '', s)
 

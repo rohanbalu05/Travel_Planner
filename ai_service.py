@@ -1,3 +1,4 @@
+# ai_service.py
 import os
 import re
 from flask import current_app
@@ -63,6 +64,7 @@ def generate_itinerary_via_groq(prompt_text: str) -> str:
                     "**Crucially, aim to utilize at least 70% of the provided budget, scaling the quality of experiences "
                     "and comfort level (e.g., accommodation, transport, activities) to match the budget.** "
                     "For higher budgets, suggest premium experiences. Do not exceed the total budget."
+                    "**IMPORTANT: For each day, explicitly include a line starting with 'Places: ' followed by a comma-separated list of locations.**" # FIX: Added explicit instruction for 'Places:'
                 )},
                 {"role": "user", "content": prompt_text}
             ],
