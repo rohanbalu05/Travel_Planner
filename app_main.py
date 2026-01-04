@@ -38,6 +38,9 @@ MAX_ITINERARY_CHARS = 100000
 LLM_MAX_TOKENS = 4000
 LLM_FINISH_TOKENS = 2000
 
+# FIX: Define a default radius for destination-based filtering (in kilometers)
+DESTINATION_RADIUS_KM = 150 # A reasonable default for most travel destinations
+
 # In-memory cache for geocoding results
 _geocode_cache = {}
 
@@ -660,38 +663,145 @@ def geocode_place_simple(place):
         _geocode_cache[place] = None # Cache negative result
         return None
 
-def get_itinerary_map_locations(itinerary_text: str) -> list:
+# FIX: Haversine distance calculation function
+def haversine_distance(lat1, lon1, lat2, lon2):
+    """
+    Calculate the distance between two points on Earth using the Haversine formula.
+    Returns distance in kilometers.
+    """
+    R = 6371  # Radius of Earth in kilometers
+
+    lat1_rad = math.radians(lat1)
+    lon1_rad = math.radians(lon1)
+    lat2_rad = math.radians(lat2)
+    lon2_rad = math.radians(lon2)
+
+    dlon = lon2_rad - lon1_rad
+    dlat = lat2_rad - lat1_rad
+
+    a = math.sin(dlat / 2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    distance = R * c
+    return distance
+
+def get_itinerary_map_locations(itinerary_text: str, trip_destination: str) -> list: # FIX: Added trip_destination parameter
     """
     Extracts place names from the itinerary text, geocodes them, and returns
     a list of dictionaries suitable for map markers.
+    Applies a radius-based filter to ensure places are within the destination region.
     """
     locations = []
+    
+    # FIX 1: Geocode the main trip destination first to establish a central point.
+    dest_geo_data = geocode_place_simple(trip_destination)
+    if not dest_geo_data:
+        current_app.logger.warning(f"Could not geocode main destination: {trip_destination}. No radius filtering will be applied, and only the destination will be shown if no other places are found.")
+        # If destination cannot be geocoded, we cannot apply radius filtering effectively.
+        # We will still try to geocode individual places but won't filter them by distance.
+        dest_lat, dest_lng, dest_display_name = None, None, None
+    else:
+        dest_lat, dest_lng, dest_display_name = dest_geo_data
+        # FIX 5: Always include the main destination marker if it can be geocoded.
+        locations.append({
+            "place": dest_display_name,
+            "lat": dest_lat,
+            "lng": dest_lng,
+            "day": "Destination" # Label for the main destination marker
+        })
+
     # Use the existing validation function to parse days and places
     _, _, parsed_days_data, _ = validate_itinerary(itinerary_text, user_budget="0 INR") # Budget doesn't matter for place parsing
 
     for day_data in parsed_days_data:
         day_number = day_data['day_number']
         for place_name in day_data['places']:
+            place_added = False # Flag to track if the place was successfully added
+
+            # Attempt 1: Geocode the place name directly
             geo_data = geocode_place_simple(place_name)
-            if geo_data:
+            
+            if geo_data and dest_lat is not None and dest_lng is not None:
                 lat, lng, display_name = geo_data
-                locations.append({
-                    "place": display_name,
-                    "lat": lat,
-                    "lng": lng,
+                distance = haversine_distance(dest_lat, dest_lng, lat, lng)
+                # FIX 3 & 4: Check if distance is within the defined radius
+                if distance <= DESTINATION_RADIUS_KM:
+                    locations.append({
+                        "place": display_name,
+                        "lat": lat,
+                        "lng": lng,
+                        "day": day_number
+                    })
+                    place_added = True
+                else:
+                    current_app.logger.debug(f"Place '{place_name}' (Attempt 1) too far ({distance:.2f} km) from destination.")
+            elif geo_data: # If destination couldn't be geocoded, add place without distance check
+                 locations.append({
+                    "place": geo_data[2], # display_name
+                    "lat": geo_data[0],
+                    "lng": geo_data[1],
                     "day": day_number
                 })
+                 place_added = True
+            else:
+                current_app.logger.debug(f"Could not geocode place: {place_name} (Attempt 1)")
+
+            # FIX 6: Smart Re-geocoding - If not added and destination is known, try with destination context
+            if not place_added and dest_lat is not None and dest_lng is not None:
+                contextual_place_name = f"{place_name}, {trip_destination}, India"
+                current_app.logger.debug(f"Retrying geocoding for '{place_name}' with context: '{contextual_place_name}'")
+                contextual_geo_data = geocode_place_simple(contextual_place_name)
+                
+                if contextual_geo_data:
+                    lat, lng, display_name = contextual_geo_data
+                    distance = haversine_distance(dest_lat, dest_lng, lat, lng)
+                    if distance <= DESTINATION_RADIUS_KM:
+                        locations.append({
+                            "place": display_name,
+                            "lat": lat,
+                            "lng": lng,
+                            "day": day_number
+                        })
+                        place_added = True
+                        current_app.logger.debug(f"Place '{place_name}' successfully re-geocoded with context and added.")
+                    else:
+                        current_app.logger.debug(f"Place '{place_name}' (Attempt 2) still too far ({distance:.2f} km) from destination.")
+                else:
+                    current_app.logger.debug(f"Could not geocode place: {place_name} (Attempt 2 with context)")
+            
+            # FIX 7: Log if a place is ultimately rejected
+            if not place_added:
+                current_app.logger.info(f"Place '{place_name}' was rejected (either failed geocoding or outside radius).")
+
+    # FIX 8: Ensure the map is never empty if the itinerary has content.
+    # If no specific itinerary places were added, but the destination itself was geocoded,
+    # the destination marker should already be in `locations`.
+    # If `dest_geo_data` was None, then `locations` might be empty here.
+    if not locations and dest_geo_data:
+        # This case should ideally not happen if dest_geo_data was successful and added above.
+        # But as a final safeguard, if for some reason it's empty, add the destination.
+        locations.append({
+            "place": dest_display_name,
+            "lat": dest_lat,
+            "lng": dest_lng,
+            "day": "Destination"
+        })
+        current_app.logger.info("Fallback: Added destination marker as no other itinerary places were found.")
+    elif not locations and not dest_geo_data and itinerary_text.strip():
+        # If destination couldn't be geocoded AND no places were found,
+        # and there's still itinerary text, it means a fundamental geocoding issue.
+        current_app.logger.error("Map locations are empty: neither destination nor itinerary places could be geocoded.")
+
     return locations
 
-@app.route("/api/itinerary-locations/<int:trip_id>") # FIX: Changed route to accept trip_id
+@app.route("/api/itinerary-locations/<int:trip_id>")
 @login_required
-def api_itinerary_locations(trip_id): # FIX: Added trip_id parameter
+def api_itinerary_locations(trip_id):
     """
     API endpoint to return geocoded locations for a specific itinerary.
     """
     user = get_current_user()
     
-    # FIX: Fetch the trip directly using the trip_id from the URL
     trip = Trip.query.filter_by(id=trip_id, user_id=user.id).first()
     if not trip:
         return jsonify({"error": "Trip not found or you don't have access."}), 404
@@ -701,9 +811,12 @@ def api_itinerary_locations(trip_id): # FIX: Added trip_id parameter
     itinerary_to_process = "\n\n".join(itinerary_parts)
 
     if not itinerary_to_process:
-        return jsonify({"error": "No itinerary content found for this trip."}), 404
+        # FIX: If itinerary is empty, return an empty list, not an error,
+        # as the frontend expects a list.
+        return jsonify([])
 
-    locations = get_itinerary_map_locations(itinerary_to_process)
+    # FIX: Pass the trip.destination to the function for radius filtering
+    locations = get_itinerary_map_locations(itinerary_to_process, trip.destination)
     return jsonify(locations)
 
 
