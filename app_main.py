@@ -323,7 +323,7 @@ def home():
             result_itinerary_text = "\n\n".join(itinerary_parts)
             # Store in session for PDF download and chat modify functionality
             session['last_raw_itinerary'] = result_itinerary_text
-            session['current_trip_id'] = current_trip.id # Store current trip ID for chat modify
+            session['current_trip_id'] = current_trip.id # Store current trip ID for map API
         else:
             flash("Trip not found or you don't have access.", "error")
             return redirect(url_for('home'))
@@ -466,6 +466,7 @@ def home():
                            user_trips=user_trips, 
                            result=result_itinerary_text, 
                            current_trip=current_trip,
+                           current_trip_id=session.get('current_trip_id'), # Pass current_trip_id to the frontend
                            destination=request.form.get("destination", ""), # Pre-fill form if POST failed
                            budget=request.form.get("budget", ""),
                            days=request.form.get("days", 3),
@@ -487,7 +488,7 @@ def view_trip(trip_id):
 
     # Store in session for PDF download and chat modify
     session['last_raw_itinerary'] = result_itinerary_text
-    session['current_trip_id'] = trip.id # Keep track of current trip for chat modify
+    session['current_trip_id'] = trip.id # Keep track of current trip for map API
 
     # Render the home page with the selected trip's details
     return render_template("index_page.html", 
@@ -495,6 +496,7 @@ def view_trip(trip_id):
                            user_trips=Trip.query.filter_by(user_id=user.id).order_by(Trip.created_at.desc()).all(),
                            result=result_itinerary_text, 
                            current_trip=trip,
+                           current_trip_id=trip.id, # Pass current_trip_id to the frontend
                            destination=trip.destination,
                            budget=trip.budget,
                            days=trip.days,
@@ -573,29 +575,25 @@ def get_itinerary_map_locations(itinerary_text: str) -> list:
                 })
     return locations
 
-@app.route("/api/itinerary-locations")
+@app.route("/api/itinerary-locations/<int:trip_id>") # FIX: Changed route to accept trip_id
 @login_required
-def api_itinerary_locations():
+def api_itinerary_locations(trip_id): # FIX: Added trip_id parameter
     """
-    API endpoint to return geocoded locations for the current itinerary.
+    API endpoint to return geocoded locations for a specific itinerary.
     """
     user = get_current_user()
-    current_trip_id = session.get('current_trip_id')
-    itinerary_text_from_session = session.get('last_raw_itinerary')
+    
+    # FIX: Fetch the trip directly using the trip_id from the URL
+    trip = Trip.query.filter_by(id=trip_id, user_id=user.id).first()
+    if not trip:
+        return jsonify({"error": "Trip not found or you don't have access."}), 404
 
-    itinerary_to_process = None
-
-    if current_trip_id:
-        trip = Trip.query.filter_by(id=current_trip_id, user_id=user.id).first()
-        if trip:
-            itinerary_parts = [day.description for day in trip.itinerary_days]
-            itinerary_to_process = "\n\n".join(itinerary_parts)
-    elif itinerary_text_from_session:
-        # Fallback to session if no trip_id is active (e.g., after initial generation before redirect)
-        itinerary_to_process = itinerary_text_from_session
+    # Reconstruct itinerary text from DB for processing
+    itinerary_parts = [day.description for day in trip.itinerary_days]
+    itinerary_to_process = "\n\n".join(itinerary_parts)
 
     if not itinerary_to_process:
-        return jsonify({"error": "No active itinerary found to extract locations."}), 404
+        return jsonify({"error": "No itinerary content found for this trip."}), 404
 
     locations = get_itinerary_map_locations(itinerary_to_process)
     return jsonify(locations)

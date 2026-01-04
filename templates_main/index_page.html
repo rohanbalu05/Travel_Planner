@@ -552,17 +552,19 @@
     document.getElementById('routeBtn')?.addEventListener('click', (e)=>{ e.preventDefault(); showRoute(); });
 
     // center on destination automatically when page loads (if set)
+    // FIX: Removed marker creation from here. Itinerary markers will handle specific locations.
+    // This function now only sets the initial map view if a destination is provided.
     (function centerDestInit(){
       const destRaw = document.getElementById('destInput')?.value.trim();
       if(!destRaw) return;
       if(isLatLng(destRaw)){
         const [lat,lng] = destRaw.split(',').map(x=>parseFloat(x));
         map.setView([lat,lng], 9);
-        L.marker([lat,lng]).addTo(map);
+        // L.marker([lat,lng]).addTo(map); // REMOVED: Let itinerary markers handle specific points
       } else {
         fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(destRaw), { headers:{'User-Agent':'novatripai/1.0'} })
           .then(r => r.json()).then(data => {
-            if(data && data[0]){ const lat=parseFloat(data[0].lat), lon=parseFloat(data[0].lon); map.setView([lat,lon],9); L.marker([lat,lon]).addTo(map); }
+            if(data && data[0]){ const lat=parseFloat(data[0].lat), lon=parseFloat(data[0].lon); map.setView([lat,lon],9); /* L.marker([lat,lon]).addTo(map); */ } // REMOVED
           }).catch(()=>{/*ignore*/});
       }
     })();
@@ -593,14 +595,18 @@
 
     async function fetchAndDisplayItineraryMarkers() {
       clearItineraryMarkers(); // Clear existing markers first
-      const itineraryText = document.getElementById('itineraryText')?.innerText.trim();
-      if (!itineraryText) {
-        console.log("No itinerary text to display markers for.");
+      
+      // FIX: Get the current trip ID from the Flask context, safely injected
+      const currentTripId = {{ current_trip_id | tojson }}; 
+
+      if (!currentTripId) {
+        console.log("No active trip ID to display markers for.");
         return;
       }
 
       try {
-        const res = await fetch('/api/itinerary-locations');
+        // FIX: Call the API with the specific trip_id
+        const res = await fetch(`/api/itinerary-locations/${currentTripId}`);
         if (!res.ok) {
           const p = await res.json().catch(() => ({ error: res.statusText }));
           throw new Error(p.error || res.statusText);
@@ -614,7 +620,8 @@
     }
 
     // Initial load of itinerary markers if an itinerary is present
-    {% if result %}
+    // FIX: Ensure this is called only if a trip is active (current_trip_id is not null)
+    {% if current_trip_id %}
       fetchAndDisplayItineraryMarkers();
     {% endif %}
 
