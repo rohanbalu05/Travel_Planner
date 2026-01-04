@@ -14,8 +14,6 @@ if Groq and GROQ_KEY:
     client = Groq(api_key=GROQ_KEY)
 else:
     client = None
-    # Log a warning if Groq client isn't initialized, indicating mock data will be used
-    current_app.logger.warning("Groq client not initialized. Using mock itinerary.")
 
 # Config for LLM interaction
 LLM_MAX_TOKENS = 4000

@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>{% if register_mode %}Join NovaTrip{% else %}Welcome Back{% endif %} - NovaTrip AI</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --ocean-blue: #0077be;
+      --sky-blue: #4a90e2;
+      --sunset-orange: #ff6b35;
+      --sand-beige: #f4e4c1;
+      --deep-sea: #003d5c;
+      --white: #ffffff;
+      --text-dark: #2c3e50;
+      --success-green: #10b981;
+      --error-red: #ef4444;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      height: 100vh;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .background-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 0;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+
+    .background-image {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      background-image: url('https://images.pexels.com/photos/1007657/pexels-photo-1007657.jpeg?auto=compress&cs=tinysrgb&w=1920');
+      background-size: cover;
+      background-position: center;
+      animation: slowZoom 30s ease-in-out infinite alternate;
+    }
+
+    @keyframes slowZoom {
+      from { transform: scale(1); }
+      to { transform: scale(1.1); }
+    }
+
+    .overlay {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(135deg, rgba(0, 119, 190, 0.8) 0%, rgba(0, 61, 92, 0.9) 100%);
+    }
+
+    .floating-elements {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      opacity: 0.1;
+    }
+
+    .plane {
+      position: absolute;
+      font-size: 30px;
+      animation: flyAcross 25s linear infinite;
+      opacity: 0.6;
+    }
+
+    @keyframes flyAcross {
+      0% { left: -50px; top: 20%; }
+      100% { left: 110%; top: 30%; }
+    }
+
+    .plane:nth-child(1) { animation-delay: 0s; }
+    .plane:nth-child(2) { animation-delay: 8s; top: 50% !important; }
+    .plane:nth-child(3) { animation-delay: 16s; top: 70% !important; }
+
+    .content {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .auth-container {
+      display: flex;
+      max-width: 1100px;
+      width: 100%;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(20px);
+      border-radius: 24px;
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      animation: slideUp 0.6s ease-out;
+    }
+
+    @keyframes slideUp {
+      from {
+        opacity: 0;
+        transform: translateY(30px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .auth-left {
+      flex: 1;
+      padding: 60px 50px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .auth-right {
+      flex: 1;
+      background: linear-gradient(135deg, var(--ocean-blue) 0%, var(--deep-sea) 100%);
+      padding: 60px 50px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      color: white;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .auth-right::before {
+      content: '';
+      position: absolute;
+      width: 400px;
+      height: 400px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 50%;
+      top: -200px;
+      right: -200px;
+      animation: pulse 8s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 0.1; }
+      50% { transform: scale(1.1); opacity: 0.15; }
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 30px;
+    }
+
+    .logo-icon {
+      font-size: 40px;
+      animation: rotate 4s linear infinite;
+    }
+
+    @keyframes rotate {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    .logo-text {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--ocean-blue);
+    }
+
+    h1 {
+      font-size: 32px;
+      margin-bottom: 10px;
+      color: var(--text-dark);
+      font-weight: 700;
+    }
+
+    .subtitle {
+      color: #666;
+      margin-bottom: 40px;
+      font-size: 15px;
+    }
+
+    .form-group {
+      margin-bottom: 24px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 500;
+      color: var(--text-dark);
+      font-size: 14px;
+    }
+
+    input {
+      width: 100%;
+      padding: 14px 16px;
+      border: 2px solid #e1e8ed;
+      border-radius: 12px;
+      font-size: 15px;
+      transition: all 0.3s ease;
+      background: #f8f9fa;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: var(--ocean-blue);
+      background: white;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 119, 190, 0.1);
+    }
+
+    .btn {
+      width: 100%;
+      padding: 16px;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      margin-top: 10px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--ocean-blue) 0%, var(--sky-blue) 100%);
+      color: white;
+      box-shadow: 0 6px 20px rgba(0, 119, 190, 0.3);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(0, 119, 190, 0.4);
+    }
+
+    .btn-primary:active {
+      transform: translateY(0);
+    }
+
+    .divider {
+      text-align: center;
+      margin: 30px 0;
+      color: #999;
+      position: relative;
+    }
+
+    .divider::before,
+    .divider::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      width: 45%;
+      height: 1px;
+      background: #e1e8ed;
+    }
+
+    .divider::before { left: 0; }
+    .divider::after { right: 0; }
+
+    .link-text {
+      text-align: center;
+      margin-top: 20px;
+      color: #666;
+      font-size: 14px;
+    }
+
+    .link-text a {
+      color: var(--ocean-blue);
+      text-decoration: none;
+      font-weight: 600;
+      transition: color 0.3s ease;
+    }
+
+    .link-text a:hover {
+      color: var(--sky-blue);
+    }
+
+    .feature-list {
+      list-style: none;
+      margin-top: 40px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .feature-item {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      margin-bottom: 25px;
+      animation: fadeIn 0.6s ease-out backwards;
+    }
+
+    .feature-item:nth-child(1) { animation-delay: 0.2s; }
+    .feature-item:nth-child(2) { animation-delay: 0.4s; }
+    .feature-item:nth-child(3) { animation-delay: 0.6s; }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateX(-20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+
+    .feature-icon {
+      font-size: 30px;
+      filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+    }
+
+    .feature-text h3 {
+      font-size: 18px;
+      margin-bottom: 5px;
+      font-weight: 600;
+    }
+
+    .feature-text p {
+      font-size: 14px;
+      opacity: 0.9;
+    }
+
+    .flash-message {
+      padding: 14px 18px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      font-size: 14px;
+      font-weight: 500;
+      animation: slideDown 0.3s ease-out;
+    }
+
+    @keyframes slideDown {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .flash-message.success {
+      background: #d1fae5;
+      color: #065f46;
+      border-left: 4px solid var(--success-green);
+    }
+
+    .flash-message.error {
+      background: #fee2e2;
+      color: #991b1b;
+      border-left: 4px solid var(--error-red);
+    }
+
+    .flash-message.warning {
+      background: #fef3c7;
+      color: #92400e;
+      border-left: 4px solid #f59e0b;
+    }
+
+    .flash-message.info {
+      background: #dbeafe;
+      color: #1e40af;
+      border-left: 4px solid var(--sky-blue);
+    }
+
+    @media (max-width: 968px) {
+      .auth-container {
+        flex-direction: column;
+      }
+
+      .auth-right {
+        padding: 40px 30px;
+      }
+
+      .auth-left {
+        padding: 40px 30px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="background-container">
+    <div class="background-image"></div>
+    <div class="overlay"></div>
+    <div class="floating-elements">
+      <div class="plane">✈️</div>
+      <div class="plane">✈️</div>
+      <div class="plane">✈️</div>
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="auth-container">
+      <div class="auth-left">
+        <div class="logo">
+          <div class="logo-icon">🌍</div>
+          <div class="logo-text">NovaTrip</div>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="flash-message {{ category }}">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        {% if register_mode %}
+          <h1>Create Your Account</h1>
+          <p class="subtitle">Start planning your dream adventures today</p>
+
+          <form method="post" action="{{ url_for('register') }}">
+            <div class="form-group">
+              <label for="username">Username</label>
+              <input type="text" id="username" name="username" placeholder="Choose a username" required autofocus />
+            </div>
+
+            <div class="form-group">
+              <label for="email">Email Address</label>
+              <input type="email" id="email" name="email" placeholder="your@email.com" required />
+            </div>
+
+            <div class="form-group">
+              <label for="password">Password</label>
+              <input type="password" id="password" name="password" placeholder="Create a strong password" required />
+            </div>
+
+            <button type="submit" class="btn btn-primary">Create Account</button>
+          </form>
+
+          <div class="link-text">
+            Already have an account? <a href="{{ url_for('login') }}">Sign in here</a>
+          </div>
+        {% else %}
+          <h1>Welcome Back</h1>
+          <p class="subtitle">Sign in to continue your journey</p>
+
+          <form method="post" action="{{ url_for('login') }}">
+            <div class="form-group">
+              <label for="username">Username</label>
+              <input type="text" id="username" name="username" placeholder="Enter your username" required autofocus />
+            </div>
+
+            <div class="form-group">
+              <label for="password">Password</label>
+              <input type="password" id="password" name="password" placeholder="Enter your password" required />
+            </div>
+
+            <button type="submit" class="btn btn-primary">Sign In</button>
+          </form>
+
+          <div class="link-text">
+            Don't have an account? <a href="{{ url_for('register') }}">Create one now</a>
+          </div>
+        {% endif %}
+      </div>
+
+      <div class="auth-right">
+        <ul class="feature-list">
+          <li class="feature-item">
+            <div class="feature-icon">🤖</div>
+            <div class="feature-text">
+              <h3>AI-Powered Planning</h3>
+              <p>Get personalized itineraries crafted by advanced AI</p>
+            </div>
+          </li>
+          <li class="feature-item">
+            <div class="feature-icon">🗺️</div>
+            <div class="feature-text">
+              <h3>Interactive Maps</h3>
+              <p>Visualize your journey with detailed route planning</p>
+            </div>
+          </li>
+          <li class="feature-item">
+            <div class="feature-icon">💰</div>
+            <div class="feature-text">
+              <h3>Budget Optimization</h3>
+              <p>Smart suggestions that match your budget perfectly</p>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -251,47 +251,45 @@ def scale_itinerary_content(parsed_days_data: list, user_budget_value: int) -> (
 @app.route("/register", methods=["GET", "POST"])
 def register():
     """Handles user registration."""
-    if 'user_id' in session: # If already logged in, redirect to home
+    if 'user_id' in session:
         return redirect(url_for('home'))
     if request.method == "POST":
         username = request.form.get("username")
         email = request.form.get("email")
         password = request.form.get("password")
-        
-        # Basic input validation
+
         if not username or not email or not password:
             flash("All fields are required for registration.", "error")
-            return render_template("index_page.html", active_tab="register", current_trip_id=None) # FIX: Pass current_trip_id=None
+            return render_template("auth.html", register_mode=True)
 
         success, message = register_user(username, email, password)
         if success:
             flash(message, "success")
-            return redirect(url_for('login')) # Redirect to login after successful registration
+            return redirect(url_for('login'))
         else:
             flash(message, "error")
-    return render_template("index_page.html", active_tab="register", current_trip_id=None) # FIX: Pass current_trip_id=None
+    return render_template("auth.html", register_mode=True)
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
     """Handles user login."""
-    if 'user_id' in session: # If already logged in, redirect to home
+    if 'user_id' in session:
         return redirect(url_for('home'))
     if request.method == "POST":
         username = request.form.get("username")
         password = request.form.get("password")
 
-        # Basic input validation
         if not username or not password:
             flash("Username and password are required.", "error")
-            return render_template("index_page.html", active_tab="login", current_trip_id=None) # FIX: Pass current_trip_id=None
+            return render_template("auth.html", register_mode=False)
 
         success, message = login_user(username, password)
         if success:
             flash(message, "success")
-            return redirect(url_for('home')) # Redirect to home after successful login
+            return redirect(url_for('home'))
         else:
             flash(message, "error")
-    return render_template("index_page.html", active_tab="login", current_trip_id=None) # FIX: Pass current_trip_id=None
+    return render_template("auth.html", register_mode=False)
 
 @app.route("/logout")
 def logout():
@@ -345,12 +343,12 @@ def home():
         # Input validation for itinerary generation form
         if not destination or not days or days <= 0:
             flash("Destination and number of days (must be positive) are required.", "error")
-            return render_template("index_page.html", 
-                                   user=user, 
-                                   user_trips=user_trips, 
-                                   result=result_itinerary_text, 
+            return render_template("home.html",
+                                   user=user,
+                                   user_trips=user_trips,
+                                   result=result_itinerary_text,
                                    current_trip=current_trip,
-                                   current_trip_id=session.get('current_trip_id'), # Pass current_trip_id to the frontend
+                                   current_trip_id=session.get('current_trip_id'),
                                    destination=destination,
                                    budget=budget,
                                    days=days,
@@ -378,12 +376,12 @@ def home():
         # Handle AI API failure
         if raw_ai_response.startswith("ERROR:"):
             flash(f"AI generation failed: {raw_ai_response}", "error")
-            return render_template("index_page.html", 
-                                   user=user, 
-                                   user_trips=user_trips, 
-                                   result=result_itinerary_text, 
+            return render_template("home.html",
+                                   user=user,
+                                   user_trips=user_trips,
+                                   result=result_itinerary_text,
                                    current_trip=current_trip,
-                                   current_trip_id=session.get('current_trip_id'), # Pass current_trip_id to the frontend
+                                   current_trip_id=session.get('current_trip_id'),
                                    destination=destination,
                                    budget=budget,
                                    days=days,
@@ -471,13 +469,13 @@ def home():
             return redirect(url_for('home', trip_id=new_trip.id))
 
     # Render the home page with current user info, trips, and any generated/loaded itinerary
-    return render_template("index_page.html", 
-                           user=user, 
-                           user_trips=user_trips, 
-                           result=result_itinerary_text, 
+    return render_template("home.html",
+                           user=user,
+                           user_trips=user_trips,
+                           result=result_itinerary_text,
                            current_trip=current_trip,
-                           current_trip_id=session.get('current_trip_id'), # Pass current_trip_id to the frontend
-                           destination=request.form.get("destination", ""), # Pre-fill form if POST failed
+                           current_trip_id=session.get('current_trip_id'),
+                           destination=request.form.get("destination", ""),
                            budget=request.form.get("budget", ""),
                            days=request.form.get("days", 3),
                            trip_type=request.form.get("trip_type", ""))
@@ -606,12 +604,12 @@ def view_trip(trip_id):
     session['current_trip_id'] = trip.id # Keep track of current trip for map API
 
     # Render the home page with the selected trip's details
-    return render_template("index_page.html", 
-                           user=user, 
+    return render_template("home.html",
+                           user=user,
                            user_trips=Trip.query.filter_by(user_id=user.id).order_by(Trip.created_at.desc()).all(),
-                           result=result_itinerary_text, 
+                           result=result_itinerary_text,
                            current_trip=trip,
-                           current_trip_id=trip.id, # Pass current_trip_id to the frontend
+                           current_trip_id=trip.id,
                            destination=trip.destination,
                            budget=trip.budget,
                            days=trip.days,
@@ -1037,11 +1035,10 @@ def chat_modify_structured():
     itinerary_text = align_itinerary_text(itinerary_text)
     
     # --- Validation Layer for modified itinerary ---
-    # For chat modify, we treat under-utilization as an error, not a scaling opportunity.
-    # The user explicitly asked for a modification, so the AI should have handled the budget.
+    # For chat modify, we're more lenient - we only reject hard validation failures, not budget under-utilization
     is_valid, validation_message, parsed_days_data, needs_scaling = validate_itinerary(itinerary_text, current_trip.budget, max_places_per_day=5)
 
-    if not is_valid or needs_scaling: # If modified itinerary fails validation or is under-utilized, reject it
+    if not is_valid and not needs_scaling: # Only reject hard validation failures
         return jsonify({"error": f"Modified itinerary failed validation: {validation_message}. Please refine your instruction."}), 400
     
     # If valid, update the database with the new itinerary
