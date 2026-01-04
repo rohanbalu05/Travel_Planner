@@ -86,33 +86,80 @@ NovaTrip/
 
 ## ⚙️ Setup Instructions
 
-### 1. Clone the Repository
+### Quick Setup (Windows - Recommended)
+
+Simply run the setup script:
+```cmd
+setup.bat
+```
+
+Then start the application:
+```cmd
+run.bat
+```
+
+Open browser at: **http://127.0.0.1:5000**
+
+---
+
+### Manual Setup (All Platforms)
+
+#### 1. Clone the Repository
 ```bash
 git clone https://github.com/rahulnew0405-del/NovaTripAI.git
 cd NovaTripAI
 ```
 
-### 2. Install Dependencies
-```bash
-pip3 install --break-system-packages -r requirements.txt
+#### 2. Create Virtual Environment
+**Windows:**
+```cmd
+python -m venv venv_nt
+venv_nt\Scripts\activate
 ```
 
-### 3. Set Environment Variables (Optional)
+**Linux/Mac:**
 ```bash
-# For AI-powered itineraries (optional - works without this using mock data)
+python3 -m venv venv_nt
+source venv_nt/bin/activate
+```
+
+#### 3. Install Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+#### 4. Set Groq API Key (Optional - works without it)
+**Windows PowerShell:**
+```powershell
+$env:GROQ_API_KEY="your_groq_api_key_here"
+```
+
+**Windows CMD:**
+```cmd
+set GROQ_API_KEY=your_groq_api_key_here
+```
+
+**Linux/Mac:**
+```bash
 export GROQ_API_KEY="your_groq_api_key_here"
-
-# For production security (optional - has default for development)
-export FLASK_SECRET_KEY="your_secret_key_here"
 ```
 
-### 4. Run the Application
+#### 5. Run the Application
 ```bash
-python3 app.py
+python app_main.py
 ```
 
-### 5. Open in Browser
-Navigate to: **http://localhost:5000**
+#### 6. Open in Browser
+Navigate to: **http://127.0.0.1:5000**
+
+---
+
+### Requirements
+
+- **Python**: 3.13.x (tested with 3.13.9)
+- **Operating System**: Windows, Linux, or Mac
+- **Internet**: Required for maps and routing features
+- **Groq API Key**: Optional (app works with mock data)
 
 ---
 
